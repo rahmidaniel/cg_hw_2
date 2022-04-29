@@ -1,0 +1,3 @@
+/Users/oaksapling/Desktop/Dev/cg-homework2/cmake-build-debug/CMakeFiles/program.dir
+/Users/oaksapling/Desktop/Dev/cg-homework2/cmake-build-debug/CMakeFiles/edit_cache.dir
+/Users/oaksapling/Desktop/Dev/cg-homework2/cmake-build-debug/CMakeFiles/rebuild_cache.dir

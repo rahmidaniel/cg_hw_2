@@ -1,0 +1,6 @@
+# ninja log v5
+1	8	0	/Users/oaksapling/Desktop/Dev/cg-homework2/src/framework.cpp	87c2bc0beaf1d91d
+1	9	0	/Users/oaksapling/Desktop/Dev/cg-homework2/src/Skeleton.cpp	87c2bc0beaf1d91d
+9	572	1651272090674459993	CMakeFiles/program.dir/src/framework.cpp.o	d6d79452ef459dfc
+9	580	1651272090688643169	CMakeFiles/program.dir/src/Skeleton.cpp.o	36b5d618a061321e
+586	923	1651272091036984068	program	4bcb83864f5316a8
