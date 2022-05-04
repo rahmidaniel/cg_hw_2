@@ -1,5 +1,5 @@
 //=============================================================================================
-// Mintaprogram: Zöld háromszög. Ervenyes 2019. osztol.
+// Mintaprogram: Zï¿½ld hï¿½romszï¿½g. Ervenyes 2019. osztol.
 //
 // A beadott program csak ebben a fajlban lehet, a fajl 1 byte-os ASCII karaktereket tartalmazhat, BOM kihuzando.
 // Tilos:
@@ -33,121 +33,316 @@
 //=============================================================================================
 #include "framework.h"
 
-// vertex shader in GLSL: It is a Raw string (C++11) since it contains new line characters
-const char * const vertexSource = R"(
-	#version 330				// Shader 3.3
-	precision highp float;		// normal floats, makes no difference on desktop computers
+const char *const vertexSource = R"()";
 
-	uniform mat4 MVP;			// uniform variable, the Model-View-Projection transformation matrix
-	layout(location = 0) in vec2 vp;	// Varying input: vp = vertex position is expected in attrib array 0
+const char *const fragmentSource = R"()";
 
-	void main() {
-		gl_Position = vec4(vp.x, vp.y, 0, 1) * MVP;		// transform vp from modeling space to normalized device space
-	}
-)";
+GPUProgram gpuProgram(false);
+unsigned int vao;
+int frame = 0;
 
-// fragment shader in GLSL
-const char * const fragmentSource = R"(
-	#version 330			// Shader 3.3
-	precision highp float;	// normal floats, makes no difference on desktop computers
-	
-	uniform vec3 color;		// uniform variable, the color of the primitive
-	out vec4 outColor;		// computed color of the current pixel
+const float PI = 3.141592654;
+const int parts = 8;
 
-	void main() {
-		outColor = vec4(color, 1);	// computed color is the color of the primitive
-	}
-)";
+vec4 quat(vec3 axis, float angle) {
+    axis = axis * sin(angle / 2);
+    return {axis.x, axis.y, axis.z, cos(angle / 2)};
+}
 
-GPUProgram gpuProgram; // vertex and fragment shaders
-unsigned int vao;	   // virtual world on the GPU
+vec4 quatInv(vec4 q1) {
+    q1.w *= -1;
+    return q1;
+}
 
-// Initialization, create an OpenGL context
+vec4 quatMul(vec4 q1, vec4 q2) {
+    return vec4(
+            q1.w * q2.xyz + q2.w * q1.xyz + cross(q1.xyz, q2.xyz),
+            q1.w * q2.w - dot(q1.xyz, q2.xyz)
+    );
+}
+
+vec3 quatRot(vec4 q1, vec3 p) {
+    vec4 qInv = quatInv(q1);
+    return quatMul(quatMul(q1, vec4(p.x, p.y, p.z, 0)), qInv).xyz;
+}
+
+vec4 Rotate(vec3 u, vec3 v){
+    vec3 h = u + v / length(u+v);
+    vec3 c = cross(u,h);
+    return {dot(u,h), c.x, c.y, c.z};
+}
+
+float combine(float t1, float t2, vec3 normal1, vec3 normal2, vec3& normal) {
+    if (t1 < 0.0 && t2 < 0.0) {
+        return -1.0;
+    } else if (t2 < 0.0) {
+        normal = normal1;
+        return t1;
+    } else if (t1 < 0.0) {
+        normal = normal2;
+        return t2;
+    } else {
+        if (t1 < t2) {
+            normal = normal1;
+            return t1;
+        } else {
+            normal = normal2;
+            return t2;
+        }
+    }
+}
+
+float intersectSphere(vec3 origin, vec3 rayDir, vec3 center, float radius, vec3& normal) {
+    vec3 oc = origin - center;
+    float a = dot(rayDir, rayDir);
+    float b = 2.f * dot(oc, rayDir);
+    float c = dot(oc, oc) - radius * radius;
+    float disc = b * b - 4 * a * c;
+    if (disc < 0.0) {
+        return -1.0;
+    }
+    float t = (-b - sqrt(disc)) / (2 * a);
+    vec3 hitPos = origin + rayDir * t;
+
+    normal = normalize(hitPos - center);
+    return t;
+}
+
+float intersectCylinder(vec3 origin, vec3 rayDir, vec3 center, float radius, float height, vec3& normal) {
+    vec2 rayXZ = vec2(rayDir.x, rayDir.z);
+    vec2 oc = vec2(origin.x, origin.z) - vec2(center.x, center.z);
+    float a = dot(rayXZ, rayXZ);
+    float b = 2.f * dot(oc, rayXZ);
+    float c = dot(oc, oc) - radius * radius;
+    float disc = b * b - 4 * a * c;
+    if (disc < 0.0) {
+        return -1.0;
+    }
+    float t1 = (-b - sqrt(disc)) / (2 * a);
+    float t2 = (-b + sqrt(disc)) / (2 * a);
+    vec3 hitPos1 = origin + rayDir * t1;
+    vec3 hitPos2 = origin + rayDir * t2;
+    if (hitPos1.y < center.y || hitPos1.y > height + center.y)
+        t1 = -1.0;
+    if (hitPos2.y < center.y || hitPos2.y > height + center.y)
+        t2 = -1.0;
+
+    vec3 hitPos;
+    float t = combine(t1, t2, hitPos1, hitPos2, hitPos);
+
+    normal = hitPos - center;
+    normal.y = 0.0;
+    normal = normalize(normal);
+
+    return t;
+}
+
+float intersectPlane(vec3 origin, vec3 rayDir, vec3 point, vec3 normal) {
+    return dot(point - origin, normal) / dot(rayDir, normal);
+}
+
+float intersectParabole(vec3 origin, vec3 rayDir, vec3 center, float height, vec3& normal){
+    vec3 oc = origin - center;
+    vec2 rayXZ = vec2(rayDir.x, rayDir.z);
+    vec2 ocXZ = vec2(oc.x, oc.z);
+    float a = dot(rayXZ, rayXZ);
+    float b = 2 * dot(ocXZ, rayXZ) - rayDir.y;
+    float c = dot(ocXZ, ocXZ) - oc.y;
+    float disc = b * b - 4 * a * c;
+    if (disc < 0.0) return -1.0;
+
+    float t1 = (-b - sqrt(disc)) / (2 * a);
+    float t2 = (-b + sqrt(disc)) / (2 * a);
+
+    vec3 hitPos1 = origin + rayDir * t1;
+    vec3 hitPos2 = origin + rayDir * t2;
+
+    //if (length(hitPos1 - center) > height) t1 = -1.0;
+    //if (length(hitPos2 - center) > height) t2 = -1.0;
+
+    vec3 hitPos;
+    float t = combine(t1, t2, hitPos1, hitPos2, hitPos);
+
+    if (length(hitPos - center) > height) t = -1.0;
+    hitPos = hitPos - center;
+
+    vec3 dx = vec3(1,2 * hitPos.x,0);
+    vec3 dz = vec3(0,2 * hitPos.z,1);
+
+    normal = cross(dx, dz);
+    normal = normalize(normal);
+
+    return t;
+}
+
+struct pair{
+    float shape;
+    vec3 normal;
+
+    explicit pair(float t = 0, vec3 n = 0){
+        normal = n;
+        shape = t;
+    }
+};
+
+
+float constructShape(pair pairs[parts], int c, vec3& normal){
+    float t = combine(pairs[1].shape, pairs[0].shape, pairs[1].normal, pairs[0].normal, normal);
+    for(int i=0; i < c; i++) {
+        t = combine(t, pairs[i].shape, normal, pairs[i].normal, normal);
+    }
+    return t;
+}
+
+float intersectWorld(vec3 origin, vec3 rayDir, vec3& normal) {
+    float time = frame / 60.f;
+
+    float floorPos = -0.2;
+    float baseR = 2;
+    float baseH = 0.2;
+    float basePos = 0;
+    float jointR = 0.3;
+    float neckR = 0.15;
+    float neckH = 2.5;
+    float parab = 1;
+
+    pair pairs[parts];
+    int c = 0;
+
+    // Rotate with this
+    vec4 q1 = quat(normalize(vec3(1,6,3)), time);
+    vec3 rotOrigin1 = quatRot(q1, origin);
+    vec3 rotRayDir1 = quatRot(q1, rayDir);
+
+    vec4 q2 = quat(normalize(vec3(0,4,3)), time);
+    vec3 rotOrigin2 = quatRot(q2, origin);
+    vec3 rotRayDir2 = quatRot(q2, rayDir);
+
+    vec4 q3 = quatMul(q1,q2);
+    vec3 rotOrigin3 = quatRot(q3, origin);
+    vec3 rotRayDir3 = quatRot(q3, rayDir);
+
+    vec3 nPlane = vec3(0,1,0);
+    float tPlane = intersectPlane(origin, rayDir, vec3(0,floorPos,0), nPlane);
+
+    vec3 nTemp;
+    float tTemp;
+
+    tTemp = intersectCylinder(origin, rayDir, vec3(0, basePos-0.1, 0), baseR, baseH, nTemp);
+    pairs[c++] = pair(tTemp, nTemp); // base
+
+    nTemp = vec3(0,1,0);
+    tTemp = intersectPlane(origin, rayDir, vec3(0, basePos-0.1 + baseH, 0), nTemp);
+
+    vec3 hitPosPlane = origin + rayDir * tTemp;
+    if(hitPosPlane.x * hitPosPlane.x + hitPosPlane.z * hitPosPlane.z > baseR * baseR) tTemp = -1.0;
+    pairs[c++] = pair(tTemp, nTemp); // cyl top
+
+    nTemp = vec3(0);
+    tTemp = intersectSphere(origin, rayDir, vec3(0,basePos,0), jointR, nTemp);
+    pairs[c++] = pair(tTemp, nTemp); // shp1
+
+    nTemp = vec3(0);
+    tTemp = intersectCylinder(rotOrigin1, rotRayDir1, vec3(0,basePos,0), neckR, neckH, nTemp);
+    nTemp = quatRot(quatInv(q1), nTemp); // inverse
+    pairs[c++] = pair(tTemp, nTemp); // neck1
+
+    nTemp = vec3(0);
+    tTemp = intersectSphere(rotOrigin1, rotRayDir1, vec3(0, neckH, 0), jointR, nTemp);
+    nTemp = quatRot(quatInv(q1), nTemp); // inverse
+    pairs[c++] = pair(tTemp, nTemp); // shp2
+
+    //nTemp = vec3(0);
+    //vec4 q = Rotate(vec3(0, neckH, 0), )
+    tTemp = intersectCylinder(rotOrigin2, rotRayDir2, vec3(0, neckH, 0), neckR, neckH, nTemp);
+    nTemp = quatRot(quatInv(q2), nTemp); // inverse
+    pairs[c++] = pair(tTemp, nTemp); // heck2
+
+    nTemp = vec3(0);
+    tTemp = intersectSphere(rotOrigin1, rotRayDir1, vec3(0, neckH * 2, 0), jointR, nTemp);
+    nTemp = quatRot(quatInv(q1), nTemp); // inverse
+    pairs[c++] = pair(tTemp, nTemp); // shp1
+
+    tTemp = intersectParabole(rotOrigin1, rotRayDir1, vec3(0,2,4), parab, nTemp);
+    nTemp = quatRot(quatInv(q1), nTemp); // inverse
+    //pairs[c++] = pair(tTemp, nTemp); // parab
+
+    float t = constructShape(pairs, c, normal);
+
+    return combine(t, tPlane, normal, nPlane, normal);
+}
+
 void onInitialization() {
-	glViewport(0, 0, windowWidth, windowHeight);
+    glViewport(0, 0, windowWidth, windowHeight);
 
-	glGenVertexArrays(1, &vao);	// get 1 vao id
-	glBindVertexArray(vao);		// make it active
+    glGenVertexArrays(1, &vao);
+    glBindVertexArray(vao);
 
-	unsigned int vbo;		// vertex buffer object
-	glGenBuffers(1, &vbo);	// Generate 1 buffer
-	glBindBuffer(GL_ARRAY_BUFFER, vbo);
-	// Geometry with 24 bytes (6 floats or 3 x 2 coordinates)
-	float vertices[] = { -0.8f, -0.8f, -0.6f, 1.0f, 0.8f, -0.2f };
-	glBufferData(GL_ARRAY_BUFFER, 	// Copy to GPU target
-		sizeof(vertices),  // # bytes
-		vertices,	      	// address
-		GL_STATIC_DRAW);	// we do not change later
+    unsigned int vbo;
+    glGenBuffers(1, &vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    float vertices[] = {-1.0f, -1.0f, 1.0f, -1.0f, -1.0f, 1.0f, 1.0f, 1.0f};
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
 
-	glEnableVertexAttribArray(0);  // AttribArray 0
-	glVertexAttribPointer(0,       // vbo -> AttribArray 0
-		2, GL_FLOAT, GL_FALSE, // two floats/attrib, not fixed-point
-		0, NULL); 		     // stride, offset: tightly packed
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, NULL);
 
-	// create program for the GPU
-	gpuProgram.create(vertexSource, fragmentSource, "outColor");
+    gpuProgram.create(vertexSource, fragmentSource, "outColor");
 }
 
-// Window has become invalid: Redraw
+// LEADAS ELOTT VEDD KI
+#include <fstream>
+#include <sstream>
+// VEGE
+
 void onDisplay() {
-	glClearColor(0, 0, 0, 0);     // background color
-	glClear(GL_COLOR_BUFFER_BIT); // clear frame buffer
+    glClearColor(0, 0, 0, 0);
+    glClear(GL_COLOR_BUFFER_BIT);
 
-	// Set color to (0, 1, 0) = green
-	int location = glGetUniformLocation(gpuProgram.getId(), "color");
-	glUniform3f(location, 0.0f, 1.0f, 0.0f); // 3 floats
+    // LEADAS ELOTT VEDD KI
 
-	float MVPtransf[4][4] = { 1, 0, 0, 0,    // MVP matrix, 
-							  0, 1, 0, 0,    // row-major!
-							  0, 0, 1, 0,
-							  0, 0, 0, 1 };
+    std::string newVertexSrc;
+    std::string newFragmentSrc;
+    std::string line;
+    std::ifstream vfile("vertex.vert");
+    while (std::getline(vfile, line)) {
+        newVertexSrc += line + "\n";
+    }
+    vfile.close();
+    std::ifstream ffile("fragment.frag");
+    while (std::getline(ffile, line)) {
+        newFragmentSrc += line + "\n";
+    }
+    ffile.close();
 
-	location = glGetUniformLocation(gpuProgram.getId(), "MVP");	// Get the GPU location of uniform variable MVP
-	glUniformMatrix4fv(location, 1, GL_TRUE, &MVPtransf[0][0]);	// Load a 4x4 row-major float matrix to the specified location
+    GPUProgram gpuProgram(false);
+    gpuProgram.create(newVertexSrc.c_str(), newFragmentSrc.c_str(), "outColor");
 
-	glBindVertexArray(vao);  // Draw call
-	glDrawArrays(GL_TRIANGLES, 0 /*startIdx*/, 3 /*# Elements*/);
+    // VEGE
+    int loc = glGetUniformLocation(gpuProgram.getId(), "frame");
+    glUniform1f(loc, (float)frame);
 
-	glutSwapBuffers(); // exchange buffers for double buffering
+    frame++;
+
+    glBindVertexArray(vao);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+    glutSwapBuffers();
+    glutPostRedisplay();
 }
 
-// Key of ASCII code pressed
 void onKeyboard(unsigned char key, int pX, int pY) {
-	if (key == 'd') glutPostRedisplay();         // if d, invalidate display, i.e. redraw
 }
 
-// Key of ASCII code released
 void onKeyboardUp(unsigned char key, int pX, int pY) {
 }
 
-// Move mouse with key pressed
-void onMouseMotion(int pX, int pY) {	// pX, pY are the pixel coordinates of the cursor in the coordinate system of the operation system
-	// Convert to normalized device space
-	float cX = 2.0f * pX / windowWidth - 1;	// flip y axis
-	float cY = 1.0f - 2.0f * pY / windowHeight;
-	printf("Mouse moved to (%3.2f, %3.2f)\n", cX, cY);
+void onMouseMotion(int pX, int pY) {
 }
 
-// Mouse click event
-void onMouse(int button, int state, int pX, int pY) { // pX, pY are the pixel coordinates of the cursor in the coordinate system of the operation system
-	// Convert to normalized device space
-	float cX = 2.0f * pX / windowWidth - 1;	// flip y axis
-	float cY = 1.0f - 2.0f * pY / windowHeight;
-
-	char * buttonStat;
-	switch (state) {
-	case GLUT_DOWN: buttonStat = "pressed"; break;
-	case GLUT_UP:   buttonStat = "released"; break;
-	}
-
-	switch (button) {
-	case GLUT_LEFT_BUTTON:   printf("Left button %s at (%3.2f, %3.2f)\n", buttonStat, cX, cY);   break;
-	case GLUT_MIDDLE_BUTTON: printf("Middle button %s at (%3.2f, %3.2f)\n", buttonStat, cX, cY); break;
-	case GLUT_RIGHT_BUTTON:  printf("Right button %s at (%3.2f, %3.2f)\n", buttonStat, cX, cY);  break;
-	}
+void onMouse(int button, int state, int pX, int pY) {
 }
 
-// Idle event indicating that some time elapsed: do animation here
 void onIdle() {
-	long time = glutGet(GLUT_ELAPSED_TIME); // elapsed time since the start of the program
 }
+

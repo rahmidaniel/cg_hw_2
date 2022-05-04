@@ -13,6 +13,7 @@
 #include <string>
 
 #if defined(__APPLE__)
+#define GL_SILENCE_DEPRECATION
 #include <GLUT/GLUT.h>
 #include <OpenGL/gl3.h>
 #else

@@ -116,11 +116,13 @@ float intersectParabole(vec3 origin, vec3 rayDir, vec3 center, float height, out
     vec3 hitPos1 = origin + rayDir * t1;
     vec3 hitPos2 = origin + rayDir * t2;
 
-    if (length(hitPos1 - center) > height) t1 = -1.0;
-    if (length(hitPos2 - center) > height) t2 = -1.0;
+    //if (length(hitPos1 - center) > height) t1 = -1.0;
+    //if (length(hitPos2 - center) > height) t2 = -1.0;
     
     vec3 hitPos;
-    float t = combine(t2, t1, hitPos2, hitPos1, hitPos);
+    float t = combine(t1, t2, hitPos1, hitPos2, hitPos);
+
+    if (length(hitPos - center) > height) t = -1.0;
     hitPos = hitPos - center;
 
     vec3 dx = vec3(1,2 * hitPos.x,0);
@@ -166,7 +168,7 @@ float intersectWorld(vec3 origin, vec3 rayDir, out vec3 normal) {
     vec3 rotOrigin1 = quatRot(q1, origin);
     vec3 rotRayDir1 = quatRot(q1, rayDir);
 
-    vec4 q2 = quat(normalize(vec3(0,1,3)), time);
+    vec4 q2 = quat(normalize(vec3(0,4,3)), time);
     vec3 rotOrigin2 = quatRot(q2, origin);
     vec3 rotRayDir2 = quatRot(q2, rayDir);
 
@@ -215,9 +217,9 @@ float intersectWorld(vec3 origin, vec3 rayDir, out vec3 normal) {
     nTemp = quatRot(quatInv(q1), nTemp); // inverse
     pairs[c++] = pair(tTemp, nTemp); // shp1
 
-    tTemp = intersectParabole(rotOrigin2, rotRayDir2, vec3(0,2,4), parab, nTemp);
-    nTemp = quatRot(quatInv(q2), nTemp); // inverse
-    pairs[c++] = pair(tTemp, nTemp); // parab
+    tTemp = intersectParabole(rotOrigin1, rotRayDir1, vec3(0,2,4), parab, nTemp);
+    nTemp = quatRot(quatInv(q1), nTemp); // inverse
+    //pairs[c++] = pair(tTemp, nTemp); // parab
     
     float t = constructShape(pairs, c, normal);
 
@@ -226,7 +228,7 @@ float intersectWorld(vec3 origin, vec3 rayDir, out vec3 normal) {
 
 void main() {
     float time = frame / 60.0;
-    vec3 lightPos = vec3(0, 6, 6);
+    vec3 lightPos = vec3(0, 5, 5);
     
     float fov = PI / 2;
     
