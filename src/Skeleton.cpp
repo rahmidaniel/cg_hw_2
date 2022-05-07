@@ -331,10 +331,10 @@ public:
         float fov = 45 * M_PI / 180;
         camera.set(eye, lookat, vup, fov);
 
-        vec3 kd(0.1f, 0.2f, 0.9f), ks(0.6, 0.6, 0.6);
-        vec3 kd2(0.4f, 0.2f, 0.1f), ks2(1, 1, 1);
-        materials.push_back(new Material(kd, ks, 60));
-        materials.push_back(new Material(kd2, ks2, 30));
+        vec3 kd(0.1f, 0.2f, 0.5f), ks(10, 10, 10);
+        vec3 kd2(0.4f, 0.2f, 0.1f), ks2(10, 10, 10);
+        materials.push_back(new Material(kd, ks, 100));
+        materials.push_back(new Material(kd2, ks2, 50));
 
         float deskY = -0.4;
         float jointR = 0.02;

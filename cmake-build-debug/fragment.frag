@@ -332,7 +332,7 @@ vec3 directLight(Light light, Ray ray, Hit hit){
 
 vec3 trace(Ray ray) {
     vec3 outRadiance = vec3(0, 0, 0);
-    Light mainLight = Light(wEye + vec3(0,3,3), vec3(0.03,0.03,0.03), vec3(0.001,0.001,0.001));
+    Light mainLight = Light(wEye + vec3(0,9,9), vec3(0.01,0.01,0.01), vec3(0.001,0.001,0.001));
 
     Hit hit = firstIntersect(ray);
     if (hit.t < 0) return mainLight.La;
@@ -342,10 +342,10 @@ vec3 trace(Ray ray) {
 
     //vec4 q1 = quat(normalize(vec3(1,4,3)), frame/60.0);
 
-    Light lampLight = Light(lamp.center, vec3(0.02,0.02,0.02), vec3(0,0,0));
+    //Light lampLight = Light(lamp.center, vec3(0.02,0.02,0.02), vec3(0,0,0));
     //lampLight.direction = quatRot(q1, lampLight.direction);
 
-    outRadiance += directLight(lampLight, ray, hit);
+    //outRadiance += directLight(lampLight, ray, hit);
     
     return outRadiance;
 }
