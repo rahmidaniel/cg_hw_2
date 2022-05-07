@@ -331,10 +331,10 @@ public:
         float fov = 45 * M_PI / 180;
         camera.set(eye, lookat, vup, fov);
 
-        vec3 kd(0.1f, 0.2f, 0.7f), ks(1, 1, 1);
-        vec3 kd2(0.4f, 0.2f, 0.1f), ks2(2, 2, 2);
-        materials.push_back(new Material(kd, ks, 70));
-        materials.push_back(new Material(kd2, ks2, 80));
+        vec3 kd(0.1f, 0.2f, 0.9f), ks(0.6, 0.6, 0.6);
+        vec3 kd2(0.4f, 0.2f, 0.1f), ks2(1, 1, 1);
+        materials.push_back(new Material(kd, ks, 60));
+        materials.push_back(new Material(kd2, ks2, 30));
 
         float deskY = -0.4;
         float jointR = 0.02;
@@ -376,26 +376,19 @@ public:
 
         // light
         //lights.push_back(new Light(vec3(0,deskY + baseH + neckH * 2,0.2), Le * 0.5f));
-        vec3 lightDirection(*nodes[4] + vec3(0,jointR * 2,0.1)), Le(1, 1, 1), La(0.04f, 0.04f, 0.04f);
-        lights.push_back(new Light(lightDirection, Le, La));
+//        vec3 Le(0.5, 0.5, 0.5), La(0.01f, 0.01f, 0.01f);
+//        lights.push_back(new Light(eye + vec3(0,0,10), Le, La));
+        //lights.push_back(new Light(lightDirection, Le, La));
     }
     void setUniform(Shader& shader) {
         shader.setUniformObjects(objects);
         shader.setUniformMaterials(materials);
-        shader.setUniformLight(lights[0]);
+        //shader.setUniformLight(lights[0]);
         shader.setUniformCamera(camera);
     }
 
     void animate(float dt){
-        camera.animate(dt);
-        // do rotations
-        //*nodes[4] = quatRot(Quaternion(normalize(vec3(1,2,3)), sin(frame/60.f)), *nodes[4]);
-//        mat4 rot = RotationMatrix(frame/60.f, vec3(1,6,3));
-//        vec3 a = *nodes[4];
-//        vec4 q = vec4(a.x, a.y, a.z, 1) * rot;
-//        *nodes[4] = vec3(q.x, q.y, q.z);
-//
-//        *nodes[2] = quatRot({normalize(vec3(1,6,3)), ((float)frame)/60.f}, *nodes[2]);
+        //camera.animate(dt);
     }
 };
 
@@ -930,7 +923,7 @@ void onMouseMotion(int pX, int pY) {
 
 // Idle event indicating that some time elapsed: do animation here
 void onIdle() {
-    scene.animate(0.03f);
+    scene.animate(0.05f);
     glutPostRedisplay();
 }
 
