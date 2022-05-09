@@ -18,8 +18,8 @@
 //
 // NYILATKOZAT
 // ---------------------------------------------------------------------------------------------
-// Nev    : 
-// Neptun : 
+// Nev    : Daniel Rahmi
+// Neptun : WIFRTR
 // ---------------------------------------------------------------------------------------------
 // ezennel kijelentem, hogy a feladatot magam keszitettem, es ha barmilyen segitseget igenybe vettem vagy
 // mas szellemi termeket felhasznaltam, akkor a forrast es az atvett reszt kommentekben egyertelmuen jeloltem.
@@ -31,209 +31,140 @@
 // Tudomasul veszem, hogy a forrasmegjeloles kotelmenek megsertese eseten a hazifeladatra adhato pontokat
 // negativ elojellel szamoljak el es ezzel parhuzamosan eljaras is indul velem szemben.
 //=============================================================================================
+
+/**
+ * A program alapjait az eloadasok anyagabol, a raytracing gpu pelda programbol es a grafika konzultaciobol alkottam meg.
+ * */
 #include "framework.h"
 
 int frame = 0;
 
-struct Quaternion{
-    float w;
-    vec3 xyz;
-    Quaternion(vec3 axis, float angle) {
-        xyz = axis * sin(angle / 2);
-        w = cos(angle / 2);
-    }
-    Quaternion inv(){
-        Quaternion q1(xyz, w);
-        q1.w *= -1;
-        return q1;
-    }
+struct Light {
+    vec3 position;
+    vec3 Le, La;
+
+    Light(const vec3 &position = 0, const vec3 &le = 0, const vec3 &la=0) : position(position), Le(le), La(la) {}
 };
-Quaternion mul(Quaternion q1, Quaternion q2){
-    return {q1.w * q2.xyz + q2.w * q1.xyz + cross(q1.xyz, q2.xyz),q1.w * q2.w - dot(q1.xyz, q2.xyz)};
+
+struct Sphere {
+    vec3 center;
+    float radius;
+
+    Sphere(const vec3 &center=0, float radius=0) : center(center), radius(radius) {}
+};
+struct Paraboloid {
+    vec3 center, dir;
+    float radius;
+
+    Paraboloid(const vec3 &center=0, const vec3 &dir=0, float radius=0) : center(center), dir(dir), radius(radius) {}
+};
+struct Cylinder {
+    vec3 center, dir;
+    float radius, height;
+
+    Cylinder(const vec3 &center=0, const vec3 &dir=0, float radius=0, float height=0) : center(center), dir(dir),
+                                                                                radius(radius), height(height) {}
+};
+struct Plane {
+    vec3 center, normal;
+    float radius;
+
+    Plane(const vec3 &center=0, const vec3 &normal=0, float radius=0) : center(center), normal(normal), radius(radius) {}
+};
+
+vec4 quat(vec3 axis, float angle) {
+    vec3 a = axis * sin(angle / 2);
+    return vec4(a.x,a.y,a.z, cos(angle / 2));
 }
 
-vec3 quatRot(Quaternion q1, vec3 p) {
-    Quaternion qInv = q1.inv();
-    return mul(mul(q1,{p, 0}),qInv).xyz;
+vec4 quatInv(vec4 q1) {
+    return vec4(-q1.x,-q1.y,-q1.z, q1.w);
 }
 
-Quaternion Rotate(vec3 u, vec3 v){
-    vec3 h = u + v / length(u+v);
-    vec3 c = cross(u,h);
-    return {c, dot(u,h)};
+vec4 quatMul(vec4 q1, vec4 q2) {
+    vec3 q1r = vec3(q1.x,q1.y,q1.z);
+    vec3 q2r = vec3(q2.x,q2.y,q2.z);
+    vec3 a = q1.w * q2r + q2.w * q1r + cross(q1r, q2r);
+    float b = q1.w * q2.w - dot(q1r, q2r);
+    return vec4(a.x,a.y,a.z,b);
+}
+
+vec3 quatRot(vec4 q1, vec3 p) {
+    vec4 qInv = quatInv(q1);
+    vec4 a = quatMul(quatMul(q1, vec4(p.x,p.y,p.z, 0)), qInv);
+    return vec3(a.x,a.y,a.z);
+}
+
+Cylinder rotate(Cylinder object, vec4 q, vec3 center){
+    return Cylinder(quatRot(q, object.center - center) + center, quatRot(q, object.dir), object.radius, object.height);
+}
+
+Paraboloid rotate(Paraboloid object, vec4 q, vec3 center){
+    return Paraboloid(quatRot(q, object.center - center) + center, quatRot(q, object.dir), object.radius);
+}
+
+Sphere rotate(Sphere object, vec4 q, vec3 center){
+    return Sphere(quatRot(q, object.center - center) + center, object.radius);
+}
+
+Light rotate(Light object, vec4 q, vec3 center){
+    return Light(quatRot(q, object.position - center) + center, object.Le, object.La);
+}
+
+Plane plane;
+Sphere joints[3];
+Cylinder base; Plane baseTop;
+Cylinder arms[2];
+Paraboloid lamp;
+Light lightBulb;
+
+void animates(float dt){
+    float time = dt;
+    vec4 q1 = quat(normalize(vec3(1,5,3)), time);
+    vec4 q2 = quat(normalize(vec3(3,3,3)), time);
+    vec4 q3 = quat(normalize(vec3(1,1,0)), time);
+
+    arms[0] = rotate(arms[0], q1, joints[0].center);
+    joints[1] = rotate(joints[1], q1, joints[0].center);
+    arms[1] = rotate(arms[1], q1, joints[0].center);
+    joints[2] = rotate(joints[2], q1, joints[0].center);
+    lamp = rotate(lamp, q1, joints[0].center);
+    lightBulb = rotate(lightBulb, q1, joints[0].center);
+
+    arms[1] = rotate(arms[1], q2, joints[1].center);
+    joints[2] = rotate(joints[2], q2, joints[1].center);
+    lamp = rotate(lamp, q2, joints[1].center);
+    lightBulb = rotate(lightBulb, q2, joints[1].center);
+
+    lamp = rotate(lamp, q3, joints[2].center);
+    lightBulb = rotate(lightBulb, q3, joints[2].center);
+}
+
+void builds(){
+    float deskY = -4;
+    float jointR = 0.2;
+    float baseR = 1.5, baseH = 0.3;
+    float neckR = 0.15, neckH = 2.5;
+
+    vec3 planeLevel = vec3(0,deskY,0);
+    plane = Plane(planeLevel, vec3(0,1,0), 0);
+    base = Cylinder(planeLevel, planeLevel, baseR, baseH);
+    baseTop = Plane(planeLevel + vec3(0,baseH,0), vec3(0,1,0), baseR);
+
+    joints[0] = Sphere(baseTop.center, jointR);
+    arms[0] = Cylinder(baseTop.center, vec3(0,1,0), neckR, neckH);
+    joints[1] = Sphere(arms[0].center + vec3(0, neckH, 0), jointR);
+    arms[1] = Cylinder(joints[1].center, vec3(0,1,0), neckR, neckH);
+    joints[2] = Sphere(arms[1].center + vec3(0, neckH, 0), jointR);
+    lamp = Paraboloid(joints[2].center + vec3(0,joints[2].radius,0), vec3(0,1,0), 3);
+
+    lightBulb = Light(lamp.center + lamp.dir * 1.5f, vec3(200,200,200), vec3(0,0,0));
 }
 
 struct Material {
     vec3 ka, kd, ks;
     float  shininess;
     Material(vec3 _kd, vec3 _ks, float _shininess) : ka(_kd * M_PI), kd(_kd), ks(_ks) { shininess = _shininess; }
-};
-
-struct Hit {
-    float t;
-    vec3 position, normal;
-    Material * material;
-    Hit() { t = -1; }
-};
-
-struct Ray {
-    vec3 start, dir;
-    Ray(vec3 _start, vec3 _dir) { start = _start; dir = normalize(_dir); }
-};
-
-class Intersectable {
-public:
-    vec3* center;
-    float radius;
-
-    virtual Hit intersect(const Ray& ray) = 0;
-};
-
-float combine(float t1, float t2, vec3 normal1, vec3 normal2, vec3& normal) {
-    if (t1 < 0.0 && t2 < 0.0) {
-        return -1.0;
-    } else if (t2 < 0.0) {
-        normal = normal1;
-        return t1;
-    } else if (t1 < 0.0) {
-        normal = normal2;
-        return t2;
-    } else {
-        if (t1 < t2) {
-            normal = normal1;
-            return t1;
-        } else {
-            normal = normal2;
-            return t2;
-        }
-    }
-}
-
-struct Sphere : public Intersectable {
-    Sphere(vec3* _center, float _radius) {
-        center = _center;
-        radius = _radius;
-    }
-
-    Hit intersect(const Ray& ray) {
-        Hit hit;
-        vec3 dist = ray.start - *center;
-        float a = dot(ray.dir, ray.dir);
-        float b = dot(dist, ray.dir) * 2.0f;
-        float c = dot(dist, dist) - radius * radius;
-        float discr = b * b - 4.0f * a * c;
-        if (discr < 0) return hit;
-        float sqrt_discr = sqrtf(discr);
-        float t1 = (-b + sqrt_discr) / 2.0f / a;	// t1 >= t2 for sure
-        float t2 = (-b - sqrt_discr) / 2.0f / a;
-
-        if (t1 <= 0) return hit;
-        hit.t = (t2 > 0) ? t2 : t1;
-
-        hit.position = ray.start + ray.dir * hit.t;
-        hit.normal = normalize(hit.position - *center);
-        return hit;
-    }
-};
-
-struct Paraboloid : public Intersectable {
-    Paraboloid(vec3* _center, float _radius) {
-        center = _center;
-        radius = _radius;
-    }
-
-    Hit intersect(const Ray& ray) {
-        Hit hit;
-        vec3 dist = ray.start - *center;
-
-        vec2 rayXZ {ray.dir.x, ray.dir.z};
-        vec2 distXZ {dist.x, dist.z};
-
-        float a = dot(rayXZ, rayXZ);
-        float b = dot(distXZ, rayXZ) * 2.0f - ray.dir.y; // * 0.5
-        float c = dot(distXZ, distXZ) - dist.y; // * 0.5
-        float discr = b * b - 4.0f * a * c;
-
-        if (discr < 0.f) return hit;
-
-        float sqrt_discr = sqrtf(discr);
-        float t1 = (-b + sqrt_discr) / (2.f * a);	// t1 >= t2 for sure
-        float t2 = (-b - sqrt_discr) / (2.f * a);
-
-        vec3 hitPos1 = ray.start + ray.dir * t1;
-        vec3 hitPos2 = ray.start + ray.dir * t2;
-
-        hit.t = combine(t1, t2, hitPos1, hitPos2, hit.position);
-        if (length(hit.position - *center) > radius) hit.t = -1.0;
-
-        vec3 dx = vec3(1,2 * hit.position.x,0);
-        vec3 dz = vec3(0,2 * hit.position.z,1);
-
-        hit.normal = normalize(cross(dx, dz));
-        return hit;
-    }
-};
-
-struct Cylinder : public Intersectable {
-    float height;
-
-    Cylinder(vec3 *_center, float _radius, float _height) {
-        center = _center;
-        radius = _radius;
-        height = _height;
-    }
-
-    Hit intersect(const Ray& ray) {
-        Hit hit;
-        vec3 dist = ray.start - *center;
-
-        vec2 rayXZ {ray.dir.x, ray.dir.z};
-        vec2 distXZ {dist.x, dist.z};
-
-        float a = dot(rayXZ, rayXZ);
-        float b = dot(distXZ, rayXZ) * 2.0f;
-        float c = dot(distXZ, distXZ) - radius * radius;
-        float discr = b * b - 4.0f * a * c;
-
-        if (discr < 0.f) return hit;
-
-        float sqrt_discr = sqrtf(discr);
-        float t1 = (-b + sqrt_discr) / (2.f * a);	// t1 >= t2 for sure
-        float t2 = (-b - sqrt_discr) / (2.f * a);
-
-        vec3 hitPos1 = ray.start + ray.dir * t1;
-        vec3 hitPos2 = ray.start + ray.dir * t2;
-        if (hitPos1.y < center->y || hitPos1.y > height + center->y) t1 = -1.0;
-        if (hitPos2.y < center->y || hitPos2.y > height + center->y) t2 = -1.0;
-
-        hit.t = combine(t1, t2, hitPos1, hitPos2, hit.position);
-
-        hit.normal = hit.position - *center;
-        hit.normal.y = 0.f;
-        return hit;
-    }
-};
-
-struct Plane : public Intersectable{
-    vec3 normal;
-    Plane(vec3 *_center, float _radius, const vec3 &_normal) {
-        center = _center;
-        radius = _radius;
-        normal = _normal;
-    }
-
-    Hit intersect(const Ray& ray) {
-        Hit hit;
-        float t = dot(*center - ray.start, normal) / dot(ray.dir, normal);
-        if(t < 0.f) return hit;
-
-        hit.position = ray.start + ray.dir * t;
-        if(radius != 0 && hit.position.x * hit.position.x + hit.position.z * hit.position.z > radius * radius) t = -1.f;
-
-        hit.t = t;
-        hit.normal = normal;
-        return hit;
-    }
 };
 
 class Camera {
@@ -252,27 +183,9 @@ public:
     }
 
     void animate(float dt){
-        vec3 d = eye - lookat;
-        //Quaternion q(normalize(vec3(1,6,3)), frame/60.f);
-        //eye = quatRot(q, lookat);
-        eye = vec3(d.x * cos(dt) + d.z * sin(dt), d.y, -d.x * sin(dt) + d.z * cos(dt)) + lookat;
+        eye = vec3((eye.x - lookat.x) * cos(dt) + (eye.z - lookat.z) * sin(dt) + lookat.x, eye.y,-(eye.x - lookat.x) * sin(dt) + (eye.z - lookat.z) * cos(dt) + lookat.z);
         set(eye, lookat, up, fov);
     }
-};
-
-struct Light {
-    vec3 direction;
-    vec3 Le, La;
-    Light(vec3 _direction, vec3 _Le, vec3 _La) {
-        direction = normalize(_direction);
-        Le = _Le;
-        La = _La;
-    }
-};
-
-struct Shape{
-    float radius;
-    vec3 center;
 };
 
 //---------------------------
@@ -289,12 +202,6 @@ public:
         }
     }
 
-    void setUniformLight(Light* light) {
-        setUniform(light->La, "light.La");
-        setUniform(light->Le, "light.Le");
-        setUniform(light->direction, "light.direction");
-    }
-
     void setUniformCamera(const Camera& camera) {
         setUniform(camera.eye, "wEye");
         setUniform(camera.lookat, "wLookAt");
@@ -302,93 +209,71 @@ public:
         setUniform(camera.up, "wUp");
     }
 
-    void setUniformObjects(const std::vector<Intersectable*>& shapes) {
+    void setUniformObjects() {
         char name[256];
-        for (unsigned int o = 0; o < shapes.size()-1; o++) {
-            sprintf(name, "shapes[%d].center", o);  setUniform(*shapes[o]->center, name);
-            sprintf(name, "shapes[%d].radius", o);  setUniform(shapes[o]->radius, name);
+        setUniform(plane.center, "plane.center");
+        setUniform(plane.normal, "plane.normal");
+        setUniform(plane.radius, "plane.radius");
+
+        for (int i = 0; i < 3; ++i) {
+            sprintf(name, "joints[%d].center", i);  setUniform(joints[i].center, name);
+            sprintf(name, "joints[%d].radius", i);  setUniform(joints[i].radius, name);
         }
-//        sprintf(name, "parabola.center");  setUniform(*shapes[8]->center, name);
-//        sprintf(name, "parabola.radius");  setUniform(shapes[8]->radius, name);
+
+        for (int i = 0; i < 2; ++i) {
+            sprintf(name, "arms[%d].center", i);  setUniform(arms[i].center, name);
+            sprintf(name, "arms[%d].radius", i);  setUniform(arms[i].radius, name);
+            sprintf(name, "arms[%d].height", i);  setUniform(arms[i].height, name);
+            sprintf(name, "arms[%d].dir", i);  setUniform(arms[i].dir, name);
+        }
+
+        setUniform(base.center, "base.center");
+        setUniform(base.radius, "base.radius");
+        setUniform(base.height, "base.height");
+        setUniform(base.dir, "base.dir");
+
+        setUniform(baseTop.center, "baseTop.center");
+        setUniform(baseTop.normal, "baseTop.normal");
+        setUniform(baseTop.radius, "baseTop.radius");
+
+        setUniform(lamp.center, "lamp.center");
+        setUniform(lamp.dir, "lamp.dir");
+        setUniform(lamp.radius, "lamp.radius");
+
+        setUniform(lightBulb.La, "lightBulb.La");
+        setUniform(lightBulb.Le, "lightBulb.Le");
+        setUniform(lightBulb.position, "lightBulb.position");
+
     }
 };
 
-float rnd() { return (float)rand() / RAND_MAX; }
-
-const float epsilon = 0.0001f;
-
 class Scene {
-    std::vector<Intersectable *> objects;
-    std::vector<Light *> lights;
     std::vector<Material *> materials;
     Camera camera;
-    //vec3 La;
 
     std::vector<vec3*> nodes;
 public:
     void build() {
-        vec3 eye = vec3(0, 0, 2), vup = vec3(0, 1, 0), lookat = vec3(0, 0, 0);
+        vec3 eye = vec3(0, 0, 50), vup = vec3(0, 1, 0), lookat = vec3(0, 0, 0);
         float fov = 45 * M_PI / 180;
         camera.set(eye, lookat, vup, fov);
 
         vec3 kd(0.1f, 0.2f, 0.5f), ks(10, 10, 10);
         vec3 kd2(0.4f, 0.2f, 0.1f), ks2(10, 10, 10);
-        materials.push_back(new Material(kd, ks, 100));
-        materials.push_back(new Material(kd2, ks2, 50));
+        materials.push_back(new Material(kd, ks, 40));
+        materials.push_back(new Material(kd2, ks2, 400));
 
-        float deskY = -0.4;
-        float jointR = 0.02;
-        float baseR = 0.15, baseH = 0.03;
-        float neckR = 0.015, neckH = 0.25;
-
-        /// vectors
-            nodes.emplace_back(new vec3(0,deskY,0)); // dont move
-            //nodes.emplace_back(new vec3(0,deskY + baseH,0)); // dont move
-
-            // child 1
-            //nodes.emplace_back(new vec3(0,deskY + baseH,0));
-            nodes.emplace_back(new vec3(0,deskY + baseH,0)); // dont move
-
-            nodes.emplace_back(new vec3(0,deskY + baseH,0));
-
-            // child 2
-            //nodes.emplace_back(new vec3(0,deskY + baseH + neckH,0));
-            nodes.emplace_back(new vec3(0,deskY + baseH + neckH,0));
-
-            // child 3
-            //nodes.emplace_back(new vec3(0,deskY + baseH + neckH * 2,0));
-            nodes.emplace_back(new vec3(0,deskY + baseH + neckH * 2,0));
-        ///
-        //0
-        objects.push_back(new Plane(nodes[0], 0.f, vec3(0, 1, 0)));
-        //1,2
-        objects.push_back(new Cylinder(nodes[0], baseR, baseH));
-        objects.push_back(new Plane(nodes[1], baseR, vec3(0, 1, 0)));
-        //3,4
-        objects.push_back(new Sphere(nodes[2], jointR));
-        objects.push_back(new Cylinder(nodes[2], neckR, neckH));
-        //5,6
-        objects.push_back(new Sphere(nodes[3], jointR));
-        objects.push_back(new Cylinder(nodes[3], neckR, neckH));
-        //7,8
-        objects.push_back(new Sphere(nodes[4], jointR));
-        objects.push_back(new Paraboloid(nodes[4], jointR));
-
-        // light
-        //lights.push_back(new Light(vec3(0,deskY + baseH + neckH * 2,0.2), Le * 0.5f));
-//        vec3 Le(0.5, 0.5, 0.5), La(0.01f, 0.01f, 0.01f);
-//        lights.push_back(new Light(eye + vec3(0,0,10), Le, La));
-        //lights.push_back(new Light(lightDirection, Le, La));
+        builds();
     }
     void setUniform(Shader& shader) {
-        shader.setUniformObjects(objects);
         shader.setUniformMaterials(materials);
-        //shader.setUniformLight(lights[0]);
         shader.setUniformCamera(camera);
+        shader.setUniformObjects();
     }
 
     void animate(float dt){
-        //camera.animate(dt);
+        animates(dt);
+        camera.animate(dt/2.f);
     }
 };
 
@@ -412,8 +297,7 @@ const char *vertexSource = R"(
 )";
 
 // fragment shader in GLSL
-const char *fragmentSource = R"(
-#version 330 core
+const char *fragmentSource = R"(#version 330 core
 
 const float PI = 3.141592654;
 const int parts = 9;
@@ -424,7 +308,7 @@ struct Material {
 };
 
 struct Light {
-    vec3 direction;
+    vec3 position;
     vec3 Le, La;
 };
 
@@ -433,11 +317,11 @@ struct Sphere {
     float radius;
 };
 struct Paraboloid {
-    vec3 center;
+    vec3 center, dir;
     float radius;
 };
 struct Cylinder {
-    vec3 center;
+    vec3 center, dir;
     float radius, height;
 };
 struct Plane {
@@ -455,18 +339,15 @@ struct Ray {
     vec3 start, dir;
 };
 
-const int nMaxObjects = 500;
+struct Shape{
+    vec3 center;
+    float radius;
+};
 
 uniform vec3 wEye;
 uniform Light light;
 uniform Material materials[2];  // diffuse, specular, ambient ref
-uniform Sphere joints[3];
-uniform Paraboloid lamp;
-uniform Cylinder arms[2];
-uniform Cylinder base;
-uniform Plane planes[2];
-
-uniform Shape shapes[1 + 2 + 3 + 2 + 1];
+uniform int frame;
 
 in  vec3 p;					// center on camera window corresponding to the pixel
 out vec4 fragmentColor;		// output that goes to the raster memory as told by glBindFragDataLocation
@@ -480,10 +361,7 @@ vec4 quatInv(vec4 q1) {
 }
 
 vec4 quatMul(vec4 q1, vec4 q2) {
-    return vec4(
-    q1.w * q2.xyz + q2.w * q1.xyz + cross(q1.xyz, q2.xyz),
-    q1.w * q2.w - dot(q1.xyz, q2.xyz)
-    );
+    return vec4(q1.w * q2.xyz + q2.w * q1.xyz + cross(q1.xyz, q2.xyz),q1.w * q2.w - dot(q1.xyz, q2.xyz));
 }
 
 vec3 quatRot(vec4 q1, vec3 p) {
@@ -491,9 +369,20 @@ vec3 quatRot(vec4 q1, vec3 p) {
     return quatMul(quatMul(q1, vec4(p, 0)), qInv).xyz;
 }
 
-vec4 Rotate(vec3 u, vec3 v){
-    vec3 h = u + v / length(u+v);
-    return vec4(dot(u,h), cross(u,h));
+Cylinder rotate(Cylinder object, vec4 q, vec3 center){
+    return Cylinder(quatRot(q, object.center - center) + center, quatRot(q, object.dir), object.radius, object.height);
+}
+
+Paraboloid rotate(Paraboloid object, vec4 q, vec3 center){
+    return Paraboloid(quatRot(q, object.center - center) + center, quatRot(q, object.dir), object.radius);
+}
+
+Sphere rotate(Sphere object, vec4 q, vec3 center){
+    return Sphere(quatRot(q, object.center - center) + center, object.radius);
+}
+
+Light rotate(Light object, vec4 q, vec3 center){
+    return Light(quatRot(q, object.position - center) + center, object.Le, object.La);
 }
 
 float combine(float t1, float t2, vec3 normal1, vec3 normal2, out vec3 normal) {
@@ -518,6 +407,7 @@ float combine(float t1, float t2, vec3 normal1, vec3 normal2, out vec3 normal) {
 
 Hit intersect(const Sphere obj, const Ray ray) {
     Hit hit;
+    hit.mat = 0;
     hit.t = -1.f;
     vec3 oc = ray.start - obj.center;
     float a = dot(ray.dir, ray.dir);
@@ -527,15 +417,37 @@ Hit intersect(const Sphere obj, const Ray ray) {
     if (disc < 0.0) return hit;
 
     hit.t = (-b - sqrt(disc)) / (2 * a);
-    hit.position = ray.start + ray.dir * t;
+    hit.position = ray.start + ray.dir * hit.t;
     hit.normal = normalize(hit.position - obj.center);
 
     return hit;
 }
 
-Hit intersect(const Cylinder obj, const Ray ray) {
+Hit intersect(const Plane obj, const Ray ray) {
     Hit hit;
-    hit.t = -1.f;
+
+    hit.t = dot(obj.center - ray.start, obj.normal) / dot(ray.dir, obj.normal);
+    hit.position = ray.start + ray.dir * hit.t;
+    hit.mat = 0;
+    if(obj.radius > 0 && hit.position.x * hit.position.x + hit.position.z * hit.position.z > obj.radius * obj.radius) hit.t= -1.0;
+    else if(obj.radius == 0.0) hit.mat = 1;
+
+    hit.normal = obj.normal;
+
+    return hit;
+}
+
+Hit intersect(const Cylinder object, const Ray r) {
+    Hit hit;
+    hit.mat = 0;
+    hit.t = -1;
+
+    vec3 halfway = normalize(object.dir + vec3(0,1,0));
+    vec4 q = quat(halfway, PI);
+    Ray ray = Ray(quatRot(q, r.start), quatRot(q, r.dir));
+
+    Cylinder obj = rotate(object, q, vec3(0,0,0));
+
     vec2 oc = ray.start.xz - obj.center.xz;
     float a = dot(ray.dir.xz, ray.dir.xz);
     float b = 2.0 * dot(oc, ray.dir.xz);
@@ -547,32 +459,32 @@ Hit intersect(const Cylinder obj, const Ray ray) {
     float t2 = (-b + sqrt(disc)) / (2 * a);
     vec3 hitPos1 = ray.start + ray.dir * t1;
     vec3 hitPos2 = ray.start + ray.dir * t2;
-    if (hitPos1.y < center.y || hitPos1.y > obj.height + obj.center.y) t1 = -1.0;
-    if (hitPos2.y < center.y || hitPos2.y > obj.height + obj.center.y) t2 = -1.0;
+
+    if (hitPos1.y < obj.center.y || hitPos1.y > obj.height + obj.center.y) t1 = -1.0;
+    if (hitPos2.y < obj.center.y || hitPos2.y > obj.height + obj.center.y) t2 = -1.0;
 
     hit.t = combine(t1, t2, hitPos1, hitPos2, hit.position);
 
-    hit.normal = normalize(hit.position - obj.center);
+    hit.normal = hit.position - obj.center;
     hit.normal.y = 0.0;
-    return hit;
-}
+    hit.normal = normalize(hit.normal);
 
-Hit intersect(const Plane obj, const Ray ray) {
-    Hit hit;
-    hit.t = -1.f;
-    float t = dot(obj.center - origin, obj.normal) / dot(ray.dir, obj.normal);
-
-    if(obj.radius == 0.f) t = -1.f;
-    hit.t = t;
-    hit.position = ray.start + ray.dir * t1;
-    hit.normal = obj.normal;
+    hit.position = quatRot(q, hit.position);
+    hit.normal = quatRot(q, hit.normal);
 
     return hit;
 }
 
-Hit intersect(const Paraboloid obj, const Ray ray){
+Hit intersect(const Paraboloid object, const Ray r){
     Hit hit;
-    hit.t = -1.f;
+    hit.mat = 0;
+    hit.t = -1;
+
+    vec3 halfway = normalize(object.dir + vec3(0,1,0));
+    vec4 q = quat(halfway, PI);
+    Ray ray = Ray(quatRot(q, r.start), quatRot(q, r.dir));
+
+    Paraboloid obj = rotate(object, q, vec3(0,0,0));
 
     vec3 oc = ray.start - obj.center;
     float a = dot(ray.dir.xz, ray.dir.xz);
@@ -587,229 +499,116 @@ Hit intersect(const Paraboloid obj, const Ray ray){
     vec3 hitPos1 = ray.start + ray.dir * t1;
     vec3 hitPos2 = ray.start + ray.dir * t2;
 
-    //if (length(hitPos1 - center) > height) t1 = -1.0;
-    //if (length(hitPos2 - center) > height) t2 = -1.0;
+    if (length(hitPos1- obj.center) > obj.radius) t1 = -1.0;
+    if (length(hitPos2- obj.center) > obj.radius) t2 = -1.0;
 
-    vec3 hitPos;
-    float t = combine(t1, t2, hitPos1, hitPos2, hitPos);
+    hit.t = combine(t1, t2, hitPos1, hitPos2, hit.position);
 
-    if (length(hitPos- obj.center) > obj.radius) t = -1.0;
-    hit.position = hitPos - obj.center;
-    hit.t = t;
+    hit.normal = quatRot(q, normalize(vec3((hit.position.x - obj.center.x) * 2, - 1, (hit.position.z - obj.center.z) * 2)));
+    hit.position = quatRot(q, hit.position);
 
-    vec3 dx = vec3(1,2 * hit.position.x,0);
-    vec3 dz = vec3(0,2 * hit.position.z,1);
-
-    hit.normal = normalize(cross(dx, dz));
     return hit;
 }
 
-struct pair{
-    float shape;
-    vec3 normal;
-};
-void checkHit(Hit hit, out Hit bestHit){
-    if (hit.t > 0 && (bestHit.t < 0 || hit.t < bestHit.t)){
-        bestHit = hit;
-        bestHit.mat = 0;
-    }
+uniform Plane plane;
+uniform Sphere joints[3];
+uniform Cylinder base; uniform Plane baseTop;
+uniform Cylinder arms[2];
+uniform Paraboloid lamp;
+uniform Light lightBulb;
+
+Hit hits[parts];
+
+void runRay(Ray ray, out Hit hits[parts]){
+    int c = 0;
+    hits[c++] = intersect(plane, ray);
+    hits[c++] = intersect(base, ray);
+    hits[c++] = intersect(baseTop, ray);
+
+    hits[c++] = intersect(joints[0], ray);;
+    hits[c++] = intersect(arms[0], ray);
+    hits[c++] = intersect(joints[1], ray);
+    hits[c++] = intersect(arms[1], ray);
+    hits[c++] = intersect(joints[2], ray);
+    hits[c++] = intersect(lamp, ray);
 }
 
-////
+void checkHit(Hit hit, out Hit bestHit){
+    if (hit.t > 0 && (bestHit.t < 0 || hit.t < bestHit.t)) bestHit = hit;
+}
+
 Hit firstIntersect(Ray ray) {
     Hit bestHit;
     bestHit.t = -1;
-    bestHit.mat = 1;
-    ////
-    Plane p = Plane(shapes[0].center, vec3(0,1,0), shapes[0].radius);
-    checkHit(intersect(p), bestHit);
 
-    Cylinder base = Cylinder(shapes[1].center, shapes[1].radius, 0.03);
-    checkHit(intersect(base), bestHit);
+    runRay(ray, hits);
 
-    Plane baseTop = Plane(shapes[2].center, vec3(0,1,0), shapes[2].radius);
-    checkHit(intersect(baseTop), bestHit);
+    //checkHit(hits[i], bestHit);
+    //float t = combine(hits[1].t, hits[0].t, hits[1].normal, hits[0].normal, bestHit.normal);
+    for(int i = 0; i < parts; i++) {
+        //t = combine(t, hits[i].t, bestHit.normal, hits[i].normal, bestHit.normal);
+        checkHit(hits[i], bestHit);
+    }
+    //bestHit.t = t;
+    //bestHit.position = ray.start + ray.dir * t;
+    //bestHit.mat = 0;
 
-    Sphere joint1 = Sphere(shapes[3].center, shapes[3].radius);
-    checkHit(intersect(joint1), bestHit);
-
-    Cylinder arm1 = Cylinder(shapes[3].center, shapes[3].radius, 0.25);
-    checkHit(intersect(arm1), bestHit);
-
-    Sphere joint2 = Sphere(shapes[4].center, shapes[4].radius);
-    checkHit(intersect(joint2), bestHit);
-
-    Cylinder arm2 = Cylinder(shapes[5].center, shapes[5].radius, 0.25);
-    checkHit(intersect(arm2), bestHit);
-
-    Sphere joint3 = Sphere(shapes[6].center, shapes[6].radius);
-    checkHit(intersect(joint3), bestHit);
-
-    Paraboloid lamp = Paraboloid(shapes[7].center, shapes[7].radius);
-    checkHit(intersect(lamp), bestHit);
-
-    ///
     if (dot(ray.dir, bestHit.normal) > 0) bestHit.normal = bestHit.normal * (-1);
     return bestHit;
 }
-////
-bool shadowIntersect(Ray ray) {	// for directional lights
-    for (int o = 0; o < parts; o++) if (intersect(pairs[o], ray).t > 0) return true; //  hit.t < 0 if no intersection
+
+bool shadowIntersect(Light light, Ray ray, Hit hit) {
+    runRay(ray, hits);
+
+    float lengthToLight = length(light.position - hit.position);
+    for(int i = 0; i < parts; i++) if(lengthToLight > hits[i].t && hits[i].t > 0.0) return true;
+
     return false;
 }
 
-vec3 Fresnel(vec3 F0, float cosTheta) {
-    return F0 + (vec3(1, 1, 1) - F0) * pow(cosTheta, 5);
-}
-const float epsilon = 0.0001f;
+const float epsilon = 0.01;
 
-vec3 trace(Ray ray) {
-    vec3 weight = vec3(1, 1, 1);
+vec3 directLight(Light light, Ray ray, Hit hit){
     vec3 outRadiance = vec3(0, 0, 0);
-
-    Hit hit = firstIntersect(ray);
-    if (hit.t < 0) return weight * light.La;
-
-    outRadiance += weight * materials[hit.mat].ka * light.La;
     Ray shadowRay;
     shadowRay.start = hit.position + hit.normal * epsilon;
-    shadowRay.dir = light.direction;
-    float cosTheta = dot(hit.normal, light.direction);
-    if (cosTheta > 0 && !shadowIntersect(shadowRay)) {
-        outRadiance += weight * light.Le * materials[hit.mat].kd * cosTheta;
-        vec3 halfway = normalize(-ray.dir + light.direction);
+    shadowRay.dir = normalize(light.position - hit.position);
+
+    float cosTheta = dot(hit.normal, light.position);
+    float lengthToLight = length(light.position - hit.position);
+
+    if (cosTheta > 0.0 && !shadowIntersect(light, shadowRay, hit)) {
+        outRadiance += light.Le * materials[hit.mat].kd * cosTheta;
+        vec3 halfway = normalize(light.position - ray.dir);
         float cosDelta = dot(hit.normal, halfway);
-        if (cosDelta > 0) outRadiance += weight * light.Le * materials[hit.mat].ks * pow(cosDelta, materials[hit.mat].shininess);
+        if (cosDelta > 0.0) outRadiance += light.Le * materials[hit.mat].ks * pow(cosDelta, materials[hit.mat].shininess);
+        outRadiance /= (lengthToLight * lengthToLight);
     }
+    outRadiance += materials[hit.mat].ka * light.La; // ambient
+
     return outRadiance;
 }
 
-float constructShape(pair pairs[parts], int c, out vec3 normal){
-    float t = combine(pairs[1].shape, pairs[0].shape, pairs[1].normal, pairs[0].normal, normal);
-    for(int i=0; i < c; i++) {
-        t = combine(t, pairs[i].shape, normal, pairs[i].normal, normal);
-    }
-    return t;
-}
+vec3 trace(Ray ray) {
+    vec3 outRadiance = vec3(0, 0, 0);
+    Light mainLight = Light(vec3(0,4,10), vec3(30,30,30), vec3(0.06,0.06,0.06));
 
-float intersectWorld(vec3 origin, vec3 rayDir, out vec3 normal) {
-    float time = frame / 60.0;
+    Hit hit = firstIntersect(ray);
+    if (hit.t < 0) return mainLight.La;
 
-    float floorPos = -0.2;
-    float baseR = 2;
-    float baseH = 0.2;
-    float basePos = 0;
-    float jointR = 0.3;
-    float neckR = 0.15;
-    float neckH = 2.5;
-    float parab = 1;
+    outRadiance += materials[hit.mat].ka * mainLight.La;
+    outRadiance += directLight(mainLight, ray, hit);
+    outRadiance += directLight(lightBulb, ray, hit);
 
-    pair pairs[parts];
-    int c = 0;
-
-    // Rotate with this
-    vec4 q1 = quat(normalize(vec3(1,6,3)), time);
-    vec3 rotOrigin1 = quatRot(q1, origin);
-    vec3 rotRayDir1 = quatRot(q1, rayDir);
-
-    vec4 q2 = quat(normalize(vec3(0,4,3)), time);
-    vec3 rotOrigin2 = quatRot(q2, origin);
-    vec3 rotRayDir2 = quatRot(q2, rayDir);
-
-    vec4 q3 = quatMul(q1,q2);
-    vec3 rotOrigin3 = quatRot(q3, origin);
-    vec3 rotRayDir3 = quatRot(q3, rayDir);
-
-    vec3 nPlane = vec3(0,1,0);
-    float tPlane = intersectPlane(origin, rayDir, vec3(0,floorPos,0), nPlane);
-
-    vec3 nTemp;
-    float tTemp;
-
-    tTemp = intersectCylinder(origin, rayDir, vec3(0, basePos-0.1, 0), baseR, baseH, nTemp);
-    pairs[c++] = pair(tTemp, nTemp); // base
-
-    nTemp = vec3(0,1,0);
-    tTemp = intersectPlane(origin, rayDir, vec3(0, basePos-0.1 + baseH, 0), nTemp);
-
-    vec3 hitPosPlane = origin + rayDir * tTemp;
-    if(hitPosPlane.x * hitPosPlane.x + hitPosPlane.z * hitPosPlane.z > baseR * baseR) tTemp = -1.0;
-    pairs[c++] = pair(tTemp, nTemp); // cyl top
-
-    nTemp = vec3(0);
-    tTemp = intersectSphere(origin, rayDir, vec3(0,basePos,0), jointR, nTemp);
-    pairs[c++] = pair(tTemp, nTemp); // shp1
-
-    nTemp = vec3(0);
-    tTemp = intersectCylinder(rotOrigin1, rotRayDir1, vec3(0,basePos,0), neckR, neckH, nTemp);
-    nTemp = quatRot(quatInv(q1), nTemp); // inverse
-    pairs[c++] = pair(tTemp, nTemp); // neck1
-
-    nTemp = vec3(0);
-    tTemp = intersectSphere(rotOrigin1, rotRayDir1, vec3(0, neckH, 0), jointR, nTemp);
-    nTemp = quatRot(quatInv(q1), nTemp); // inverse
-    pairs[c++] = pair(tTemp, nTemp); // shp2
-
-    //nTemp = vec3(0);
-    //vec4 q = Rotate(vec3(0, neckH, 0), )
-    tTemp = intersectCylinder(rotOrigin2, rotRayDir2, vec3(0, neckH, 0), neckR, neckH, nTemp);
-    nTemp = quatRot(quatInv(q2), nTemp); // inverse
-    pairs[c++] = pair(tTemp, nTemp); // heck2
-
-    nTemp = vec3(0);
-    tTemp = intersectSphere(rotOrigin1, rotRayDir1, vec3(0, neckH * 2, 0), jointR, nTemp);
-    nTemp = quatRot(quatInv(q1), nTemp); // inverse
-    pairs[c++] = pair(tTemp, nTemp); // shp1
-
-    tTemp = intersectParabole(rotOrigin1, rotRayDir1, vec3(0,2,4), parab, nTemp);
-    nTemp = quatRot(quatInv(q1), nTemp); // inverse
-    //pairs[c++] = pair(tTemp, nTemp); // parab
-
-    float t = constructShape(pairs, c, normal);
-
-    return combine(t, tPlane, normal, nPlane, normal);
+    return outRadiance;
 }
 
 void main() {
-    //    float time = frame / 60.0;
-    //    vec3 lightPos = vec3(0, 5, 5);
-    //
-    //    float fov = PI / 2;
-    //
-    //    vec3 origin = vec3(0, 2, 10);
-    //    vec3 rayDir = normalize(vec3(texCoord * 2 - 1, -tan(fov / 2.0)));
-    //
-    //    vec3 normal = vec3(0,1,0);
-    //    float t = intersectWorld(origin, rayDir, normal);
-    //
-    //    if(dot(normal, rayDir) > 0.0) normal *= -1;
-    //
-    //    vec3 hitPos = origin + rayDir * t;
-    //    vec3 toLight = lightPos - hitPos;
-    //    float lengthToLight = length(toLight);
-    //    toLight /= lengthToLight;
-    //    if(t > 0.0){
-    //        float cosTheta = max(dot(toLight, normal),0.0);
-    //        vec3 _;
-    //        float lightT = intersectWorld(hitPos + normal * 0.0001, toLight, _);
-    //        float intensity = 40.0;
-    //        if(lightT > 0.0) intensity = 0.0;
-    //
-    //        fragColor = vec4((vec3(0.6)) * cosTheta / pow(lengthToLight, 2.0) * intensity,1);
-    //    } else {
-    //        fragColor = vec4(0,0,0,1);
-    //    }
     Ray ray;
-    ray.start = wEye;
+    ray.start = wEye + vec3(0,9,0);
     ray.dir = normalize(p - wEye);
     fragmentColor = vec4(trace(ray), 1);
-}
-)";
-
-// LEADAS ELOTT VEDD KI //TODO
-#include <fstream>
-#include <sstream>
-// VEGE
+})";
 
 class FullScreenTexturedQuad {
     unsigned int vao;	// vertex array object id and texture id
@@ -844,64 +643,25 @@ void onInitialization() {
 
     fullScreenTexturedQuad.create();
 
-    // LEADAS ELOTT VEDD KI TODO
-
-    std::string newVertexSrc;
-    std::string newFragmentSrc;
-    std::string line;
-    std::ifstream vfile("vertex.vert");
-    while (std::getline(vfile, line)) {
-        newVertexSrc += line + "\n";
-    }
-    vfile.close();
-    std::ifstream ffile("fragment.frag");
-    while (std::getline(ffile, line)) {
-        newFragmentSrc += line + "\n";
-    }
-    ffile.close();
-
-    shader.create(newVertexSrc.c_str(), newFragmentSrc.c_str(), "fragmentColor");
+    shader.create(vertexSource, fragmentSource, "fragmentColor");
     shader.Use();
-
-    // create program for the GPU
-    //shader.create(vertexSource, fragmentSource, "fragmentColor");
 }
 
 // Window has become invalid: Redraw
 void onDisplay() {
     glClearColor(1.0f, 0.5f, 0.8f, 1.0f);							// background color
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // clear the screen
-    //static int frame = 0;
     frame++;
     static long start = glutGet(GLUT_ELAPSED_TIME);
     long end = glutGet(GLUT_ELAPSED_TIME);
     printf("%d msec\r", (end - start) / frame);
 
-    // LEADAS ELOTT VEDD KI TODO
-
-    std::string newVertexSrc;
-    std::string newFragmentSrc;
-    std::string line;
-    std::ifstream vfile("vertex.vert");
-    while (std::getline(vfile, line)) {
-        newVertexSrc += line + "\n";
-    }
-    vfile.close();
-    std::ifstream ffile("fragment.frag");
-    while (std::getline(ffile, line)) {
-        newFragmentSrc += line + "\n";
-    }
-    ffile.close();
-
-    shader.create(newVertexSrc.c_str(), newFragmentSrc.c_str(), "fragmentColor");
-    shader.Use();
-
-    shader.setUniform(frame, "frame");
+    //shader.setUniform(frame, "frame");
+    //int loc =
     scene.setUniform(shader);
     fullScreenTexturedQuad.Draw();
 
     glutSwapBuffers();									// exchange the two buffers
-    glutPostRedisplay();
 }
 
 // Key of ASCII code pressed
